@@ -3,15 +3,30 @@ const qrcode = require('qrcode-terminal');
 const { GoogleGenAI } = require('@google/genai');
 const express = require('express');
 
-// Render ke Environment Variable se securely API Key uthayega
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
-// Render ke port binding ke liye Express Server
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+let latestQR = ''; // यहाँ लेटेस्ट QR स्टोर होगा
+
 app.get('/', (req, res) => {
-    res.send('Kanhaiya Housing WhatsApp Bot is Alive and Running!');
+    res.send('Kanhaiya Housing WhatsApp Bot is Alive! Go to /qr to scan.');
+});
+
+// ब्राउज़र पर साफ़ QR इमेज दिखाने के लिए नया पेज
+app.get('/qr', (req, res) => {
+    if (!latestQR) {
+        return res.send('<h2>QR Code abhi generate nahi hua hai ya WhatsApp already connected hai! Page refresh karein.</h2>');
+    }
+    const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(latestQR)}`;
+    res.send(`
+        <div style="text-align:center; font-family:sans-serif; margin-top:50px;">
+            <h2>Kanhaiya Housing Bot - Scan QR Code</h2>
+            <img src="${qrImageUrl}" alt="WhatsApp QR Code" style="border: 5px solid #021B45; padding: 10px;" />
+            <p>WhatsApp > Linked Devices > Link a Device par jakar ise scan karein.</p>
+        </div>
+    `);
 });
 
 app.listen(PORT, () => {
@@ -47,7 +62,8 @@ async function startBot() {
         const { connection, lastDisconnect, qr } = update;
         
         if (qr) {
-            console.log('\n📱 WhatsApp QR Code:\n');
+            latestQR = qr;
+            console.log('\n📱 Naya QR Code aa gaya hai! Apne browser me /qr khol kar scan karein.\n');
             qrcode.generate(qr, { small: true });
         }
 
@@ -55,6 +71,7 @@ async function startBot() {
             const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
             if (shouldReconnect) startBot();
         } else if (connection === 'open') {
+            latestQR = ''; // कनेक्ट होने के बाद QR साफ़ कर दें
             console.log('\n🚀 KANHAIYA HOUSING GEMINI AI BOT 100% STABLE & LIVE! 🚀\n');
         }
     });
@@ -86,7 +103,6 @@ async function startBot() {
                 chatHistories[senderID] = chatHistories[senderID].slice(-12);
             }
 
-            // Gemini ka stable aur sahi model
             const response = await ai.models.generateContent({
                 model: 'gemini-1.5-flash',
                 contents: chatHistories[senderID],

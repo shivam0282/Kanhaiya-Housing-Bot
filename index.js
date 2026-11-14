@@ -2,8 +2,8 @@
 const qrcode = require('qrcode-terminal');
 const { GoogleGenAI } = require('@google/genai');
 
-// Google Gemini API Key yahan daal le bhai (ye kabhi decommission nahi hoti!)
-const ai = new GoogleGenAI({ apiKey: 'AQ.Ab8RN6I9m0uqzCV8V3O8X4HSCZi-9Q4dNvod3K44Kt67Oh6Bpg' });
+// Render ke Environment Variable se securely API Key uthayega
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 const salesPersona = `
 Tum 'Kanhaiya Housing' (Kanpur) ke senior real estate sales expert ho. 
@@ -13,12 +13,12 @@ Properties & Rates:
 1. Meharban Singh Purwa: ₹17,000 per gaj. (Turant ghar banane ke liye best).
 2. Gambhirpur: ₹5 Lakh se shuru. (Investment ke liye best).
 3. Pipauri: ₹13,000 per gaj. (Bade plot kam budget me, jaise 100 gaj = ₹13 Lakh).
-* Pakki Registry, Dakhil Kharij aur Free Site Visit available hai.
-* Contact: 9219929784
+- Pakki Registry, Dakhil Kharij aur Free Site Visit available hai.
+- Contact: 9219929784
 
 Rules:
-* Jo sawal customer puche, uska waisa hi smart aur naya jawab do.
-* Kabhi bhi scripts ya labels (jaise 'AI:', 'User:') mat likho. Seedha apna message bhejo.
+- Jo sawal customer puche, uska waisa hi smart aur naya jawab do.
+- Kabhi bhi scripts ya labels (jaise 'AI:', 'User:') mat likho. Seedha apna message bhejo.
 `;
 
 const chatHistories = {};
@@ -35,7 +35,7 @@ async function startBot() {
         
         if (qr) {
             console.log('\n📱 WhatsApp QR Code:\n');
-            qrcode.generate(qr, { small: title = true });
+            qrcode.generate(qr, { small: true });
         }
 
         if (connection === 'close') {
@@ -73,9 +73,9 @@ async function startBot() {
                 chatHistories[senderID] = chatHistories[senderID].slice(-12);
             }
 
-            // Gemini ka official aur sabse stable model 'gemini-2.5-flash'
+            // Gemini ka stable aur sahi model
             const response = await ai.models.generateContent({
-                model: 'gemini-3.8-flash',
+                model: 'gemini-1.5-flash',
                 contents: chatHistories[senderID],
                 config: {
                     systemInstruction: salesPersona,

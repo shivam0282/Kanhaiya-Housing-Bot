@@ -1,131 +1,132 @@
-﻿const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
-const qrcode = require('qrcode-terminal');
-const { GoogleGenAI } = require('@google/genai');
-const express = require('express');
-
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-
+﻿const express = require('express');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-let latestQR = ''; // यहाँ लेटेस्ट QR स्टोर होगा
+app.use(express.json());
 
+// 0. Base route taki browser me kholne par live status dikhe
 app.get('/', (req, res) => {
-    res.send('Kanhaiya Housing WhatsApp Bot is Alive! Go to /qr to scan.');
+    res.send("Kanhaiya Housing WhatsApp Bot is Alive!");
 });
 
-// ब्राउज़र पर साफ़ QR इमेज दिखाने के लिए नया पेज
-app.get('/qr', (req, res) => {
-    if (!latestQR) {
-        return res.send('<h2>QR Code abhi generate nahi hua hai ya WhatsApp already connected hai! Page refresh karein.</h2>');
+// 1. Meta Webhook Verification (Yhi wala part Meta verify karta hai)
+app.get('/webhook', (req, res) => {
+    const VERIFY_TOKEN = process.env.VERIFY_TOKEN || "kanhaiya_housing_token_123";
+
+    const mode = req.query['hub.mode'];
+    const token = req.query['hub.verify_token'];
+    const challenge = req.query['hub.challenge'];
+
+    if (mode && token) {
+        if (mode === 'subscribe' && token === VERIFY_TOKEN) {
+            console.log("✅ META WEBHOOK VERIFIED SUCCESSFULLY!");
+            return res.status(200).send(challenge);
+        } else {
+            console.log("❌ Webhook verification failed: Token mismatch");
+            return res.sendStatus(403);
+        }
     }
-    const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(latestQR)}`;
-    res.send(`
-        <div style="text-align:center; font-family:sans-serif; margin-top:50px;">
-            <h2>Kanhaiya Housing Bot - Scan QR Code</h2>
-            <img src="${qrImageUrl}" alt="WhatsApp QR Code" style="border: 5px solid #021B45; padding: 10px;" />
-            <p>WhatsApp > Linked Devices > Link a Device par jakar ise scan karein.</p>
-        </div>
-    `);
-});
-
-app.listen(PORT, () => {
-    console.log(`🌐 Express Server is listening on port ${PORT}`);
+    console.log("❌ Webhook verification failed: Missing mode or token");
+    return res.sendStatus(400);
 });
 
 const salesPersona = `
 Tum 'Kanhaiya Housing' (Kanpur) ke senior real estate sales expert ho. 
-Customer se ekdum dosto ki tarah, natural Hinglish me baat karo. Jo customer puche, uska bilkul naya aur sateek jawab do. Kabhi bhi ek hi message repeat mat karo.
+Customer se ekdum dosto ki tarah, natural Hinglish me baat karo. Jo customer puche, uska bilkul naya aur sateek jawab do. Tumhara maqsad customer ko property samjhaana, unke budget ke mutabiq plot dikhana, aur Free Site Visit book karke deal pakki karna hai.
 
 Properties & Rates:
-1. Meharban Singh Purwa: ₹17,000 per gaj. (Turant ghar banane ke liye best).
-2. Gambhirpur: ₹5 Lakh se shuru. (Investment ke liye best).
+1. Meharban Singh Purwa: ₹17,000 per gaj. (Turant ghar banane ke liye best, residential area).
+2. Gambhirpur: ₹5 Lakh se shuru. (Investment aur future growth ke liye best).
 3. Pipauri: ₹13,000 per gaj. (Bade plot kam budget me, jaise 100 gaj = ₹13 Lakh).
 - Pakki Registry, Dakhil Kharij aur Free Site Visit available hai.
-- Contact: 9219929784
+- Contact / Office Helpline: 9219929784
 
 Rules:
-- Jo sawal customer puche, uska waisa hi smart aur naya jawab do.
+- Hamesha ChatGPT jaise smart, friendly aur convincing tarike se baat karo.
+- Agar customer visit ya deal ki baat kare, toh unka naam aur preferred time pooch kar site visit fix karo.
 - Kabhi bhi scripts ya labels (jaise 'AI:', 'User:') mat likho. Seedha apna message bhejo.
 `;
 
 const chatHistories = {};
 
-async function startBot() {
-    const { state, saveCreds } = await useMultiFileAuthState('auth_info');
-    
-    const sock = makeWASocket({
-        auth: state
-    });
+// 2. WhatsApp Message Receive Hone par AI se Reply bhejna
+app.post('/webhook', async (req, res) => {
+    const body = req.body;
 
-    sock.ev.on('connection.update', (update) => {
-        const { connection, lastDisconnect, qr } = update;
-        
-        if (qr) {
-            latestQR = qr;
-            console.log('\n📱 Naya QR Code aa gaya hai! Apne browser me /qr khol kar scan karein.\n');
-            qrcode.generate(qr, { small: true });
-        }
-
-        if (connection === 'close') {
-            const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
-            if (shouldReconnect) startBot();
-        } else if (connection === 'open') {
-            latestQR = ''; // कनेक्ट होने के बाद QR साफ़ कर दें
-            console.log('\n🚀 KANHAIYA HOUSING GEMINI AI BOT 100% STABLE & LIVE! 🚀\n');
-        }
-    });
-
-    sock.ev.on('creds.update', saveCreds);
-
-    sock.ev.on('messages.upsert', async ({ messages }) => {
-        const m = messages[0];
-        if (!m.message || m.key.fromMe) return;
-
-        const senderID = m.key.remoteJid;
-        if (senderID.endsWith('@g.us')) return;
-
-        const messageText = m.message.conversation || m.message.extendedTextMessage?.text;
-        if (!messageText) return;
-
-        console.log(`📩 Customer (${senderID}): ${messageText}`);
-
+    if (body.object) {
         try {
-            await sock.sendPresenceUpdate('composing', senderID);
+            const entry = body.entry?.[0];
+            const changes = entry?.changes?.[0];
+            const value = changes?.value;
+            const messageObj = value?.messages?.[0];
 
-            if (!chatHistories[senderID]) {
-                chatHistories[senderID] = [];
-            }
+            if (messageObj) {
+                const senderPhone = messageObj.from;
+                const messageText = messageObj.text?.body;
 
-            chatHistories[senderID].push({ role: 'user', parts: [{ text: messageText }] });
+                if (messageText) {
+                    console.log(`📩 Customer (${senderPhone}): ${messageText}`);
 
-            if (chatHistories[senderID].length > 12) {
-                chatHistories[senderID] = chatHistories[senderID].slice(-12);
-            }
+                    if (!chatHistories[senderPhone]) {
+                        chatHistories[senderPhone] = [];
+                    }
 
-            const response = await ai.models.generateContent({
-                model: 'gemini-1.5-flash',
-                contents: chatHistories[senderID],
-                config: {
-                    systemInstruction: salesPersona,
-                    temperature: 0.7,
+                    chatHistories[senderPhone].push({ role: 'user', content: messageText });
+
+                    if (chatHistories[senderPhone].length > 12) {
+                        chatHistories[senderPhone] = chatHistories[senderPhone].slice(-12);
+                    }
+
+const openRouterApiKey = process.env.OPENROUTER_API_KEY;
+                    const apiResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+                        method: "POST",
+                        headers: {
+                            "Authorization": `Bearer ${openRouterApiKey}`,
+                            "Content-Type": "application/json"
+                        },
+                        body: JSON.stringify({
+                            model: "meta-llama/llama-3.1-8b-instruct:free",
+                            messages: [
+                                { role: "system", content: salesPersona },
+                                ...chatHistories[senderPhone]
+                            ]
+                        })
+                    });
+
+                    const data = await apiResponse.json();
+                    const replyText = data.choices?.[0]?.message?.content?.trim() || "Ji batayein, Kanhaiya Housing me aapka swagat hai!";
+
+                    chatHistories[senderPhone].push({ role: 'assistant', content: replyText });
+
+                    const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN || "EAAQHsyIXWRYBS2zgKzvZAxQRwERfGG2ZBgGBzPAuvcBcYOM1TConZBb8Ku0j8h42I04cmZBJQdPJqsSspBtPwyMdfrlrh6wO6y35pNOHU97DLZCrHpewKHuLT09P9MadnZB8cBNJeuhE03mKZBUTNI4PHZC6WQeptBEZAQg3Mn7VzPSbSbYRwD5DtfesDgzqDBLtHGiyBTZCOlPICgIuOAlrZBlLLENyWeXtzdc0LHIJ00SjMiiFZBSvQpKjUeXhqkapwo1sBAYSPQePc1sow5ytITAZB7TbR";
+                    const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID || "1568694752990885";
+
+                    await fetch(`https://graph.facebook.com/v18.0/${PHONE_NUMBER_ID}/messages`, {
+                        method: "POST",
+                        headers: {
+                            "Authorization": `Bearer ${WHATSAPP_TOKEN}`,
+                            "Content-Type": "application/json"
+                        },
+                        body: JSON.stringify({
+                            messaging_product: "whatsapp",
+                            to: senderPhone,
+                            text: { body: replyText }
+                        })
+                    });
+
+                    console.log(`🤖 AI Reply Sent: ${replyText}\n`);
                 }
-            });
-
-            const replyText = response.text ? response.text.trim() : "Ji batayein!";
-
-            chatHistories[senderID].push({ role: 'model', parts: [{ text: replyText }] });
-
-            await sock.sendPresenceUpdate('paused', senderID);
-            await sock.sendMessage(senderID, { text: replyText });
-            console.log(`🤖 Gemini AI Reply: ${replyText}\n`);
-
-        } catch (error) {
-            console.error('❌ ASLI ERROR:', error);
-            await sock.sendPresenceUpdate('paused', senderID);
-            await sock.sendMessage(senderID, { text: "Arre bhai, error aa gayi: " + error.message });
+            }
+            return res.sendStatus(200);
+        } catch (err) {
+            console.error("❌ Error:", err);
+            return res.sendStatus(500);
         }
-    });
-}
+    } else {
+        return res.sendStatus(404);
+    }
+});
 
-startBot();
+app.listen(PORT, () => {
+    console.log(`🌐 Cloud API Server is running on port ${PORT}`);
+});

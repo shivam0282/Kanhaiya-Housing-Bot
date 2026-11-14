@@ -1,9 +1,22 @@
 ﻿const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
 const qrcode = require('qrcode-terminal');
 const { GoogleGenAI } = require('@google/genai');
+const express = require('express');
 
 // Render ke Environment Variable se securely API Key uthayega
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+
+// Render ke port binding ke liye Express Server
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.get('/', (req, res) => {
+    res.send('Kanhaiya Housing WhatsApp Bot is Alive and Running!');
+});
+
+app.listen(PORT, () => {
+    console.log(`🌐 Express Server is listening on port ${PORT}`);
+});
 
 const salesPersona = `
 Tum 'Kanhaiya Housing' (Kanpur) ke senior real estate sales expert ho. 
